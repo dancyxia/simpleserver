@@ -1,9 +1,10 @@
-all: socket
+all: server
 
-socket:  server.o pollserver.o
+server:  server.o pollserver.o socket.o
 	    $(notquiet)echo "CC  $@"
-	    $(quiet)$(CC) $(CFLAGS) -o socket1 server.o $(LDFLAGS) 
-	    $(quiet)$(CC) $(CFLAGS) -o socket2 pollserver.o $(LDFLAGS) 
+	    $(quiet)$(CC) $(CFLAGS) -o pollserver pollserver.o socket.o $(LDFLAGS) 
+	    $(quiet)$(CC) $(CFLAGS) -o epollserver server.o socket.o $(LDFLAGS) 
+
 
 #OBJS = debug.o arraylist.o json_object.o json_tokener.o json_util.o linkhash.o printbuf.o
 

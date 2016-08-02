@@ -7,7 +7,7 @@ GLIBCFLAGS = $(shell pkg-config glib-2.0 gthread-2.0 gmodule-2.0 --cflags)
 GLIBLDFLAGS = $(shell pkg-config glib-2.0 gthread-2.0 gmodule-2.0 --libs)
 CFLAGS_GLIB = $(GLIBCFLAGS)
 
-CFLAGS = -I. $(CFLAGS_GLIB) -g
+CFLAGS = -I. -Iinclude/. $(CFLAGS_GLIB) -g
 LDFLAGS = -L/usr/local/lib -L. -lwiringPi $(GLIBLDFLAGS)
 #LDFLAGS = -L/usr/local/lib -L. -ltcmalloc -lprofiler $(GLIBLDFLAGS)
 
