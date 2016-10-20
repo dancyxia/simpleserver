@@ -5,8 +5,9 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <errno.h>
+#ifdef PI
 #include <wiringPi.h>
-
+#endif
 #include "socket.h"
 #define EPOLL_MAXEVENTS 10
 #define  LedPin   21
@@ -17,13 +18,14 @@ typedef struct data {
         int pool_idx;
 } socket_data;
 
-#define POOL_SIZE 100
+#define POOL_SIZE 15
 #define MAX_FD    10
 typedef struct {
     int pool[POOL_SIZE];
     int free_pool[POOL_SIZE];
     int pool_idx_list[MAX_FD];
     int free_pool_end;
+    int need_compress;
 } fd_pool;
 
 static int HANDLE_LMT_PER_VISIT = 3;
@@ -31,7 +33,14 @@ static int HANDLE_LMT_PER_VISIT = 3;
 sig_atomic_t to_quit = 0;
 GQueue in_queue = G_QUEUE_INIT;
 GQueue out_queue = G_QUEUE_INIT;
-static fd_pool fdpool;
+static fd_pool fdpool = {.free_pool_end=POOL_SIZE-1, .need_compress = 0};
+
+void init_fd_pool() {
+    memset(fdpool.pool, -1, POOL_SIZE);
+    for (int i = 0; i < POOL_SIZE; i++) {
+        fdpool.free_pool[i] = i;
+    }
+}
 
 int efd = -1;
 
@@ -39,9 +48,30 @@ void quit() {
     to_quit = 1;
 }
 
+int compress_free_pool(void)
+{
+    if (!fdpool.need_compress)
+        return 0;
+    int s = 0, e = POOL_SIZE-1;
+    while (s < e) {
+        if (fdpool.pool[fdpool.free_pool[e]] != -1) {
+            e--;
+        } else {
+            int t = fdpool.free_pool[e];
+            fdpool.free_pool[e] = fdpool.free_pool[s];
+            fdpool.free_pool[s] = t;
+            s++;
+        }
+    }
+
+    fdpool.free_pool_end = e;
+    return e >= 0;
+}
+
 int epoll_register(int events, int efd, int socket) {
-    if (fdpool.free_pool_end == 0) {
+    if (fdpool.free_pool_end < 0 && !compress_free_pool()) {
         fprintf(stderr, "no resources are available for registering new poll fd. free_pool_end: %d", fdpool.free_pool_end);
+        return 0;
     }
 
     int new_pool_idx = fdpool.free_pool[fdpool.free_pool_end--];
@@ -101,8 +131,10 @@ void accept_data(int fdidx) {
                 free_data(data);
         }
         if (done) {
-                close(fd);
-                fdpool.pool[fdidx] = -1;
+//            printf("close fd: %d\n", fd);
+            close(fd);
+            fdpool.need_compress = 1;
+            fdpool.pool[fdidx] = -1;
         }
 }
 
@@ -120,15 +152,19 @@ void epoll_monitor(int efd, int socket, int timeout) {
     int n = epoll_wait(efd, events, EPOLL_MAXEVENTS, timeout);
     while (n-- > 0) {
         if (events[n].events & EPOLLIN) {
+            printf("events in, idx: %d, socket: %d\n", events[n].data.fd, fdpool.pool[events[n].data.fd]);
             if (fdpool.pool[events[n].data.fd] == socket) { //listening socket
+                printf("accept_connection");
                 accept_connection(socket, &register_epoll);
             } else { //get data
+                //printf("accept_data\n");
                 accept_data(events[n].data.fd);
             }
         }
     }
 }
 
+#ifdef PI
 static void handle_gpio(char id)
 {
     static int flashing = 0, status = LOW, initialized = 0;
@@ -155,7 +191,7 @@ static void handle_gpio(char id)
         delay(500);
     }
 }
-
+#endif
 
 void handle_in_queue()
 {
@@ -172,12 +208,16 @@ void handle_in_queue()
             free_data(data);
             quit();
         } else if (!strncmp(data->buf, "gpio", 4)) {
+#ifdef PI
             handle_gpio(strlen(data->buf) < 6 ? 0 : data->buf[5]);
+#endif
         } else if (!strncmp (data->buf, "get", 3)){
             char *old_data = data->buf;
             asprintf(&data->buf, "HTTP/1.1 200 ok\r\n\r\necho %s", old_data);
             free(old_data);
             data->size = strlen(data->buf);
+            g_queue_push_tail(&out_queue, data);
+        } else {
             g_queue_push_tail(&out_queue, data);
         }
 #if 0
@@ -214,6 +254,7 @@ void handle_out_queue()
                 if (send(fd, data->buf, strlen(data->buf), 0) < 0) {
                     close(fd);
                     fdpool.pool[data->pool_idx] = -1;
+                    fdpool.need_compress = 1;
                 } else {
                     write(1, data->buf, strlen(data->buf));
                 }
@@ -283,6 +324,7 @@ int main(int argc, char* argv[])
                 fprintf(stderr, "epoll setup is failed \n");
                 exit(EXIT_FAILURE);
         }
+        init_fd_pool();
         int socket = setup_server_socket(argv[1]);
         if (!epoll_register(EPOLLIN|EPOLLRDHUP, efd, socket)) {
                 fprintf(stderr, "add server socket to epoll is failed");
@@ -295,9 +337,12 @@ int main(int argc, char* argv[])
                 epoll_monitor(efd, socket, timeout);
                 handle_in_queue();
                 handle_out_queue();
+#ifdef PI
                 handle_gpio(0);
+#endif
         }
         close(socket);
         close(efd);
         close_queue();
+        printf("exit!\n");
 }

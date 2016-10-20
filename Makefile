@@ -1,13 +1,13 @@
-all: server
+all: server client
 
 server:  server.o pollserver.o socket.o
 	    $(notquiet)echo "CC  $@"
 	    $(quiet)$(CC) $(CFLAGS) -o pollserver pollserver.o socket.o $(LDFLAGS) 
 	    $(quiet)$(CC) $(CFLAGS) -o epollserver server.o socket.o $(LDFLAGS) 
 
-client: client.o
+client: client.o socket.o
 	    $(notquiet)echo "CC  $@"
-	    $(quiet)$(CC) $(CFLAGS) -o client client.o $(LDFLAGS) 
+	    $(quiet)$(CC) $(CFLAGS) -o client client.o socket.o $(LDFLAGS) 
 #OBJS = debug.o arraylist.o json_object.o json_tokener.o json_util.o linkhash.o printbuf.o
 
 include Makefile.inc
