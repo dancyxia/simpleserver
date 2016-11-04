@@ -69,7 +69,7 @@ void write_data(int *fd, int fd_num, char *data)
    }
 }
 
-#define SOCKET_NUM 10
+#define SOCKET_NUM 20
 int to_quit = 0;
 int main(int argc, char* argv[])
 {
@@ -102,6 +102,7 @@ int main(int argc, char* argv[])
 //                write_data(socket, SOCKET_NUM, "quit");
                 to_quit = 1;
             }
+            //sleep(100);
         }
         for (i = 0; i < SOCKET_NUM; i++) {
             close(socket[i]);

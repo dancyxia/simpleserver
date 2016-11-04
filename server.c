@@ -15,32 +15,42 @@
 typedef struct data {
         gchar *buf;
         int size;
-        int pool_idx;
+        int fd;
 } socket_data;
+
+//typedef struct data_list {
+//        socket_data *data;
+//        struct data_list *next;
+//} socket_data_list;
+
+//typedef struct {
+//    int fd;
+//    socket_data_list *data_list;
+//} epoll_socket_data;
 
 #define POOL_SIZE 15
 #define MAX_FD    10
-typedef struct {
-    int pool[POOL_SIZE];
-    int free_pool[POOL_SIZE];
-    int pool_idx_list[MAX_FD];
-    int free_pool_end;
-    int need_compress;
-} fd_pool;
+//typedef struct {
+//    int pool[POOL_SIZE];
+//    int free_pool[POOL_SIZE];
+//    int pool_idx_list[MAX_FD];
+//    int free_pool_end;
+//    int need_compress;
+//} fd_pool;
 
 static int HANDLE_LMT_PER_VISIT = 3;
 
 sig_atomic_t to_quit = 0;
 GQueue in_queue = G_QUEUE_INIT;
 GQueue out_queue = G_QUEUE_INIT;
-static fd_pool fdpool = {.free_pool_end=POOL_SIZE-1, .need_compress = 0};
+//static fd_pool fdpool = {.free_pool_end=POOL_SIZE-1, .need_compress = 0};
 
-void init_fd_pool() {
-    memset(fdpool.pool, -1, POOL_SIZE);
-    for (int i = 0; i < POOL_SIZE; i++) {
-        fdpool.free_pool[i] = i;
-    }
-}
+//void init_fd_pool() {
+//    memset(fdpool.pool, -1, POOL_SIZE);
+//    for (int i = 0; i < POOL_SIZE; i++) {
+//        fdpool.free_pool[i] = i;
+//    }
+//}
 
 int efd = -1;
 
@@ -48,58 +58,95 @@ void quit() {
     to_quit = 1;
 }
 
-int compress_free_pool(void)
-{
-    if (!fdpool.need_compress)
-        return 0;
-    int s = 0, e = POOL_SIZE-1;
-    while (s < e) {
-        if (fdpool.pool[fdpool.free_pool[e]] != -1) {
-            e--;
-        } else {
-            int t = fdpool.free_pool[e];
-            fdpool.free_pool[e] = fdpool.free_pool[s];
-            fdpool.free_pool[s] = t;
-            s++;
-        }
-    }
-
-    fdpool.free_pool_end = e;
-    return e >= 0;
-}
+//int compress_free_pool(void)
+//{
+//    if (!fdpool.need_compress)
+//        return 0;
+//    int s = 0, e = POOL_SIZE-1;
+//    while (s < e) {
+//        if (fdpool.pool[fdpool.free_pool[e]] != -1) {
+//            e--;
+//        } else {
+//            int t = fdpool.free_pool[e];
+//            fdpool.free_pool[e] = fdpool.free_pool[s];
+//            fdpool.free_pool[s] = t;
+//            s++;
+//        }
+//    }
+//
+//    fdpool.free_pool_end = e;
+//    return e >= 0;
+//}
 
 int epoll_register(int events, int efd, int socket) {
-    if (fdpool.free_pool_end < 0 && !compress_free_pool()) {
-        fprintf(stderr, "no resources are available for registering new poll fd. free_pool_end: %d", fdpool.free_pool_end);
+//    if (fdpool.free_pool_end < 0 && !compress_free_pool()) {
+//        fprintf(stderr, "no resources are available for registering new poll fd. free_pool_end: %d", fdpool.free_pool_end);
+//        return 0;
+//    }
+
+//    int new_pool_idx = fdpool.free_pool[fdpool.free_pool_end--];
+    //socket_data_list *node = (socket_data_list*)g_slice_alloc(sizeof socket_data_list);
+    //node->
+//    epoll_socket_data *data = (epoll_socket_data*)g_slice_alloc(sizeof(epoll_socket_data));
+//    data->fd = socket;
+//    data->data_list = NULL;
+    struct epoll_event ev;
+    ev.events = EPOLLIN|EPOLLRDHUP;
+//    ev.data.ptr = data;
+    ev.data.fd = socket;
+    if (epoll_ctl(efd, EPOLL_CTL_ADD, socket, &ev) == -1) {
         return 0;
     }
-
-    int new_pool_idx = fdpool.free_pool[fdpool.free_pool_end--];
-    struct epoll_event ev;
-        ev.events = EPOLLIN|EPOLLRDHUP;
-        ev.data.fd = new_pool_idx;
-        fdpool.pool[new_pool_idx] = socket;
-        if (epoll_ctl(efd, EPOLL_CTL_ADD, socket, &ev) == -1) {
-            return 0;
-        }
-        return 1;
+    return 1;
 }
 
 void free_data(socket_data *data) {
         if (data == NULL)
-                return;
+            return;
         if (data->buf != NULL) {
-                free(data->buf);
+            free(data->buf);
         }
         free(data);
 }
 
-void accept_data(int fdidx) {
+void free_data_with_fd(gpointer data_ptr, gpointer user_data)
+{
+    socket_data *data = data_ptr;
+    int *fd = user_data;
+
+    if (*fd == data->fd) {
+        data->fd = -1;
+       //free_data(data); 
+    }
+}
+
+void release_epoll(int fd)
+{
+    g_queue_foreach (&in_queue, free_data_with_fd, &fd);
+    g_queue_foreach (&out_queue, free_data_with_fd, &fd);
+    close(fd);
+}
+
+//void release_epoll(epoll_socket_data *data_ptr)
+//{
+//        socket_data_list *node = data_ptr->data_list;
+//
+//        while(data_ptr->data_list != NULL) {
+//                node = data_ptr->data_list->next;
+//                free_data(data_ptr->data_list->data);
+//                g_slice_free1(sizeof(socket_data_list), data_ptr->data_list);
+//                data_ptr->data_list = node;
+//
+//        }
+//        data_ptr->data_list;
+//        close(data_ptr->fd);
+//}
+
+void accept_data(int fd) {
         char buf[1024];
         int done = 0;
         socket_data *data = calloc(1, sizeof(socket_data));
-        data->pool_idx = fdidx;
-        int fd = fdpool.pool[fdidx];
+        data->fd = fd;
         int valid_data = 0;
         while(1) {
                 int count = read(fd, buf, sizeof(buf));
@@ -110,6 +157,9 @@ void accept_data(int fdidx) {
                         } else {
                                 valid_data = 1;
                                 g_queue_push_tail(&in_queue, data);
+//                                socket_data_list * node = g_slice_alloc(sizeof(socket_data_list));
+//                                node->next = data_ptr->data_list;
+//                                data_ptr->data_list = node;
                         }
                         break;
                 } else if (count == 0){ //client is closed
@@ -132,9 +182,7 @@ void accept_data(int fdidx) {
         }
         if (done) {
 //            printf("close fd: %d\n", fd);
-            close(fd);
-            fdpool.need_compress = 1;
-            fdpool.pool[fdidx] = -1;
+            release_epoll(fd);
         }
 }
 
@@ -152,8 +200,9 @@ void epoll_monitor(int efd, int socket, int timeout) {
     int n = epoll_wait(efd, events, EPOLL_MAXEVENTS, timeout);
     while (n-- > 0) {
         if (events[n].events & EPOLLIN) {
-            printf("events in, idx: %d, socket: %d\n", events[n].data.fd, fdpool.pool[events[n].data.fd]);
-            if (fdpool.pool[events[n].data.fd] == socket) { //listening socket
+            printf("events in, idx: %d, socket: %d\n", events[n].data.fd, events[n].data.fd);
+            if (events[n].data.fd == socket) { //listening socket
+            //if (((epoll_socket_data*)events[n].data.ptr)->fd == socket) { //listening socket
                 printf("accept_connection");
                 accept_connection(socket, &register_epoll);
             } else { //get data
@@ -203,6 +252,10 @@ void handle_in_queue()
     int i = 0;
     for (; i < n; i++) {
         socket_data * data = (socket_data*)g_queue_pop_head(&in_queue);
+        if (data->fd == -1) {
+            free_data(data);
+            continue;
+        }
         //TODO: quit when receive the signal
         if (!strncmp(data->buf, "quit", 4)) {
             free_data(data);
@@ -210,6 +263,7 @@ void handle_in_queue()
         } else if (!strncmp(data->buf, "gpio", 4)) {
 #ifdef PI
             handle_gpio(strlen(data->buf) < 6 ? 0 : data->buf[5]);
+            free_data(data);
 #endif
         } else if (!strncmp (data->buf, "get", 3)){
             char *old_data = data->buf;
@@ -246,19 +300,11 @@ void handle_out_queue()
     int i = 0;
     for (; i < n; i++) {
         socket_data *data = g_queue_pop_head(&out_queue);
-        if (data->pool_idx == -1) {
+        if (data->fd == -1) {
             write(1, data->buf, strlen(data->buf));
-        } else {
-            int fd= fdpool.pool[data->pool_idx];
-            if (fd != -1) {
-                if (send(fd, data->buf, strlen(data->buf), 0) < 0) {
-                    close(fd);
-                    fdpool.pool[data->pool_idx] = -1;
-                    fdpool.need_compress = 1;
-                } else {
-                    write(1, data->buf, strlen(data->buf));
-                }
-            }
+        } else if (send(data->fd, data->buf, strlen(data->buf), 0) < 0) {
+            release_epoll(data->fd);
+            close(data->fd);
         }
         free_data(data);
     }
@@ -270,7 +316,7 @@ static void prepare_welcome_msg() {
         socket_data *data = calloc(1, sizeof(socket_data));
         asprintf(&data->buf, "%s\n", welcome);
         data->size = sizeof(welcome);
-        data->pool_idx = -1;
+        data->fd = -1;
         g_queue_push_tail(&out_queue, data);
 }
 
@@ -324,7 +370,7 @@ int main(int argc, char* argv[])
                 fprintf(stderr, "epoll setup is failed \n");
                 exit(EXIT_FAILURE);
         }
-        init_fd_pool();
+        //init_fd_pool();
         int socket = setup_server_socket(argv[1]);
         if (!epoll_register(EPOLLIN|EPOLLRDHUP, efd, socket)) {
                 fprintf(stderr, "add server socket to epoll is failed");
