@@ -38,8 +38,7 @@ int setup_server_socket(char *port)
             fprintf(stderr, "set TCP_DEFER_ACCEPT failed: %m");
             goto error_out;
         }
-        if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
-            fprintf(stderr, "set NONBLOCK failed: %m");
+        if (!make_non_block_socket(fd)) {
             goto error_out;
 
         }
@@ -94,27 +93,6 @@ int setup_client_socket(char *ip, char *port)
     for (res=ori_res; res; res=res->ai_next) {
         fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
         if (fd == -1) continue;
-//        if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) == -1) {
-//            fprintf(stderr, "set SO_REUSEADDR failed: %m");
-//            goto error_out;
-//        }
-//
-//        //TCP_DEFER_ACCEPT (since Linux 2.4)
-//        //        Allow a listener to be awakened only when data arrives on the
-//        //        socket.  Takes an integer value (seconds), this can bound the
-//        //        maximum number of attempts TCP will make to complete the
-//        //        connection.  This option should not be used in code intended
-//        //        to be portable.
-//        //http://unix.stackexchange.com/questions/94104/real-world-use-of-tcp-defer-accept/94120#94120
-//        if (setsockopt(fd, IPPROTO_TCP, TCP_DEFER_ACCEPT, &on, sizeof(on)) == -1) {
-//            fprintf(stderr, "set TCP_DEFER_ACCEPT failed: %m");
-//            goto error_out;
-//        }
-//        if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
-//            fprintf(stderr, "set NONBLOCK failed: %m");
-//            goto error_out;
-//
-//        }
 //        //It marks the file descriptor so that it will be close()d automatically when the process
 //        //or any children it fork()s calls one of the exec*() family of functions. This is useful
 //        //to keep from leaking your file descriptors to random programs run by e.g. system()
@@ -147,7 +125,12 @@ error_out:
 
 int make_non_block_socket(int fd)
 {
-    if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
+    int fl = fcntl(fd, F_GETFL);
+    if (fl < 0) {
+        fprintf(stderr, "get fl error: %m\n");
+        return 0;
+    }
+    if (fcntl(fd, F_SETFL, fl | O_NONBLOCK) == -1) {
         fprintf(stderr, "set NONBLOCK failed: %m");
         return 0;
     }
