@@ -14,7 +14,7 @@ One server can have thousands of connections. How to manage such huge number of 
 ### socket
 For a TCP server, socket set consists of functions socket(), bind() and accept(). See the following code for how to use them.
 
-{%  highlight c linenos  %}
+```
 int setup_server_socket(char *port)
 {
     struct addrinfo hints;
@@ -117,7 +117,7 @@ error_out:
     close(infd);
 }
 
-{% endhighlight %}
+```
 
 ### EPOLL 
 epoll set consists of three system call. epoll_create, epoll_ctl and epoll_wait.
@@ -169,7 +169,7 @@ The events member is a bit set composition. The example only handle events EPOLL
 
 #### epoll_wait
 
-{%  highlight c linenos  %}
+```
 #include <sys/epoll.h>
 
 int epoll_wait(int epfd, struct epoll_event *events,
@@ -177,7 +177,7 @@ int epoll_wait(int epfd, struct epoll_event *events,
 int epoll_pwait(int epfd, struct epoll_event *events,
                int maxevents, int timeout,
                const sigset_t *sigmask);
-{% endhighlight %}
+```
 
 The function epoll_wait and epoll_pwait waits for events on the epoll(7) instance referred to by the file descriptor epfd. The memory events pointer point to stores the events information. The argument maxevents must be greater than 0. Argument timeout specifies the 
 minimum number of milliseconds that epoll_wait() will block. specifying it as -1 cause the epoll_wait() to block infinitely, while 0 makes the epoll_wait() to return immediately. 
@@ -188,7 +188,7 @@ By default, epoll event is distributed as level trigger. That is, as long as dat
 
 #### example
 
-{%  highlight c linenos  %}
+```
  int main(int argc, char* argv[])
  {
         if (argc != 2) {
@@ -246,4 +246,4 @@ void epoll_monitor(int efd, int socket, int timeout) {
         }
     }
 }
-{%  endhighlight %}
+```
